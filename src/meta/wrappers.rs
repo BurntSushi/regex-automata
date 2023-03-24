@@ -347,6 +347,10 @@ impl OnePass {
     pub(crate) fn is_some(&self) -> bool {
         self.0.is_some()
     }
+
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.0.as_ref().map_or(0, |e| e.memory_usage())
+    }
 }
 
 #[derive(Debug)]
@@ -420,6 +424,19 @@ impl OnePassEngine {
             self.0
                 .try_search_slots(cache.0.as_mut().unwrap(), input, slots)
                 .unwrap()
+        }
+        #[cfg(not(feature = "dfa-onepass"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    pub(crate) fn memory_usage(&self) -> usize {
+        #[cfg(feature = "dfa-onepass")]
+        {
+            self.0.memory_usage()
         }
         #[cfg(not(feature = "dfa-onepass"))]
         {
@@ -809,6 +826,10 @@ impl DFA {
     pub(crate) fn is_some(&self) -> bool {
         self.0.is_some()
     }
+
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.0.as_ref().map_or(0, |e| e.memory_usage())
+    }
 }
 
 #[derive(Debug)]
@@ -1021,6 +1042,19 @@ impl DFAEngine {
             unreachable!()
         }
     }
+
+    pub(crate) fn memory_usage(&self) -> usize {
+        #[cfg(feature = "dfa-build")]
+        {
+            self.0.forward().memory_usage() + self.0.reverse().memory_usage()
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1195,6 +1229,10 @@ impl ReverseDFA {
     pub(crate) fn is_some(&self) -> bool {
         self.0.is_some()
     }
+
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.0.as_ref().map_or(0, |e| e.memory_usage())
+    }
 }
 
 #[derive(Debug)]
@@ -1280,6 +1318,19 @@ impl ReverseDFAEngine {
             crate::meta::limited::dfa_try_search_half_rev(
                 dfa, input, min_start,
             )
+        }
+        #[cfg(not(feature = "dfa-build"))]
+        {
+            // Impossible to reach because this engine is never constructed
+            // if the requisite features aren't enabled.
+            unreachable!()
+        }
+    }
+
+    pub(crate) fn memory_usage(&self) -> usize {
+        #[cfg(feature = "dfa-build")]
+        {
+            self.0.memory_usage()
         }
         #[cfg(not(feature = "dfa-build"))]
         {

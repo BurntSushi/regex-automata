@@ -792,11 +792,7 @@ impl PikeVM {
     /// value. If no match was found, then [`Captures::is_match`] is guaranteed
     /// to return `false`.
     ///
-    /// For more control over the input parameters, see [`PikeVM::search`].
-    ///
     /// # Example
-    ///
-    /// This example shows basic usage:
     ///
     /// ```
     /// use regex_automata::{nfa::thompson::pikevm::PikeVM, Span};

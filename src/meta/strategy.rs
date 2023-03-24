@@ -43,6 +43,8 @@ pub(super) trait Strategy:
 
     fn reset_cache(&self, cache: &mut Cache);
 
+    fn memory_usage(&self) -> usize;
+
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match>;
 
     fn search_half(
@@ -352,6 +354,10 @@ impl<P: PrefilterI> Strategy for Pre<P> {
 
     fn reset_cache(&self, cache: &mut Cache) {}
 
+    fn memory_usage(&self) -> usize {
+        self.pre.memory_usage()
+    }
+
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         if input.is_done() {
             return None;
@@ -627,6 +633,15 @@ impl Strategy for Core {
         cache.hybrid.reset(&self.hybrid);
     }
 
+    fn memory_usage(&self) -> usize {
+        self.info.memory_usage()
+            + self.pre.as_ref().map_or(0, |pre| pre.memory_usage())
+            + self.nfa.memory_usage()
+            + self.nfarev.as_ref().map_or(0, |nfa| nfa.memory_usage())
+            + self.onepass.memory_usage()
+            + self.dfa.memory_usage()
+    }
+
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn search(&self, cache: &mut Cache, input: &Input<'_>) -> Option<Match> {
         // We manually inline try_search_mayfail here because letting the
@@ -876,6 +891,10 @@ impl Strategy for ReverseAnchored {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         self.core.reset_cache(cache);
+    }
+
+    fn memory_usage(&self) -> usize {
+        self.core.memory_usage()
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
@@ -1142,6 +1161,10 @@ impl Strategy for ReverseSuffix {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         self.core.reset_cache(cache);
+    }
+
+    fn memory_usage(&self) -> usize {
+        self.core.memory_usage() + self.pre.memory_usage()
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]
@@ -1519,6 +1542,13 @@ impl Strategy for ReverseInner {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn reset_cache(&self, cache: &mut Cache) {
         self.core.reset_cache(cache);
+    }
+
+    fn memory_usage(&self) -> usize {
+        self.core.memory_usage()
+            + self.preinner.memory_usage()
+            + self.nfarev.memory_usage()
+            + self.dfa.memory_usage()
     }
 
     #[cfg_attr(feature = "perf-inline", inline(always))]

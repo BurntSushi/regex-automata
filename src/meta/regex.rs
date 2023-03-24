@@ -39,29 +39,174 @@ type CachePoolGuard<'a> = PoolGuard<'a, Cache, CachePoolFn>;
 type CachePoolFn =
     Box<dyn Fn() -> Cache + Send + Sync + UnwindSafe + RefUnwindSafe>;
 
+/// A regex matcher that works by composing several other regex matchers
+/// automatically.
+///
+/// In effect, a meta regex papers over a lot of the quirks or performance
+/// problems in each of the regex engines in this crate. Its goal is to provide
+/// an infallible and simple API that "just does the right thing" in the common
+/// case.
+///
+/// A meta regex is the implementation of a `Regex` in the `regex` crate.
+/// Indeed, the `regex` crate API is essentially just a light wrapper over
+/// this type. This includes the `regex` crate's `RegexSet` API!
+///
+/// # Composition
+///
+/// This is called a "meta" matcher precisely because it uses other regex
+/// matchers to provide a convenient high level regex API. Here are some
+/// examples of how other regex matchers are composed:
+///
+/// * When calling [`Regex::captures`], instead of immediately
+/// running a slower but more capable regex engine like the
+/// [`PikeVM`](crate::nfa::thompson::pikevm::PikeVM), the meta regex engine
+/// will usually first look for the bounds of a match with a higher throughput
+/// regex engine like a [lazy DFA](crate::hybrid). Only when a match is found
+/// is the slower `PikeVM` used to find the matching span for each capture
+/// group.
+/// * While higher throughout engines like the lazy DFA cannot handle
+/// Unicode word boundaries in general, they can still be used on pure ASCII
+/// haystacks by pretending that Unicode word boundaries are just plain ASCII
+/// word boundaries. However, if a haystack is not ASCII, the meta regex engine
+/// will automatically switch to a (possibly slower) regex engine that supports
+/// Unicode word boundaries in general.
+/// * In some cases where a regex pattern is just a simple literal or a small
+/// set of literals, an actual regex engine won't be used at all. Instead,
+/// substring or multi-substring search algorithms will be employed.
+///
+/// There are many other forms of composition happening too, but the above
+/// should give a general idea. In particular, it may perhaps be surprising
+/// that *multiple* regex engines might get executed for a single search. That
+/// is, the decision of what regex engine to use is not _just_ based on the
+/// pattern, but also based on the dynamic execution of the search itself.
+///
+/// The primary reason for this composition is performance. The fundamental
+/// tension is that the faster engines tend to be less capable, and the more
+/// capable engines tend to be slower.
+///
+/// # Synchronization and cloning
+///
+/// Most of the regex engines in this crate require some kind of mutable
+/// "scratch" space to read and write from while performing a search. Since
+/// a meta regex composes these regex engines, a meta regex also requires
+/// mutable scratch space. This scratch space is called a [`Cache`].
+///
+/// Most regex engines _also_ usually have a read-only component, typically
+/// a [Thompson `NFA`](crate::nfa::thompson::NFA).
+///
+/// In order to make the `Regex` API convenient, most of the routines hide
+/// the fact that a `Cache` is needed at all. To achieve this, a memory pool
+/// is used to retrieve `Cache` values in a thread safe way that also permits
+/// reuse. This in turn implies that every such search call requires some form
+/// of synchronization. Usually this synchronization is fast enough to not
+/// notice, but in some cases, it can be a bottleneck. This typically occurs
+/// when all of the following are true:
+///
+/// * The same `Regex` is shared across multiple threads simultaneously,
+/// usually via a [`util::lazy::Lazy`](crate::util::lazy::Lazy) or something
+/// similar from the `once_cell` or `lazy_static` crates.
+/// * The primary unit of work in each thread is a regex search.
+/// * Searches are run on very short haystacks.
+///
+/// This particular case can lead to high contention on the pool used by a
+/// `Regex` internally, which can in turn increase latency to a noticeable
+/// effect. This cost can be mitigated in one of the following ways:
+///
+/// * Use a distinct copy of a `Regex` in each thread, usually by cloning it.
+/// Cloning a `Regex` _does not_ do a deep copy of its read-only component.
+/// But it does lead to each `Regex` having its own memory pool, which in
+/// turn eliminates the problem of contention. In general, this technique should
+/// not result in any additional memory usage when compared to sharing the same
+/// `Regex` across multiple threads simultaneously.
+/// * Use lower level APIs, like [`Regex::search_with`], which permit passing
+/// a `Cache` explicitly. In this case, it is up to you to determine how best
+/// to provide a `Cache`. For example, you might put a `Cache` in thread-local
+/// storage if your use case allows for it.
+///
+/// Overall, this is an issue that happens rarely in practice, but it can
+/// happen.
+///
 /// # Example
 ///
 /// ```
-/// use regex_automata::{meta::Regex, Anchored, Input, PatternID};
+/// use regex_automata::meta::Regex;
 ///
-/// let re = Regex::new(r"[a-z]+")?;
-/// assert!(re.is_match("123 abc"));
+/// let re = Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")?;
+/// assert!(re.is_match("2010-03-14"));
 ///
-/// let input = Input::new("123 abc").anchored(Anchored::Yes);
-/// assert!(!re.is_match(input));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 ///
-/// let input = Input::new("123 abc").anchored(Anchored::Yes).range(4..);
-/// assert!(re.is_match(input));
+/// # Example: anchored search
 ///
-/// let input = Input::new("123 abc")
-///     .anchored(Anchored::Pattern(PatternID::ZERO))
-///     .range(4..);
-/// assert!(re.is_match(input));
+/// This example shows how use [`Input`] to run an anchored search, even when
+/// the regex pattern itself isn't anchored. An anchored search guarantees that
+/// if a match is found, then the start offset of the match corresponds to the
+/// offset at which the search was started.
 ///
-/// let input = Input::new("123 abc")
-///     .anchored(Anchored::Pattern(PatternID::must(1)))
-///     .range(4..);
-/// assert!(!re.is_match(input));
+/// ```
+/// use regex_automata::{meta::Regex, Anchored, Input, Match};
+///
+/// let re = Regex::new(r"\bfoo\b")?;
+/// let input = Input::new("xx foo xx").range(3..).anchored(Anchored::Yes);
+/// // The offsets are in terms of the original haystack.
+/// assert_eq!(Some(Match::must(0, 3..6)), re.find(input));
+///
+/// // Notice that no match occurs here, because \b still takes the
+/// // surrounding context into account, even if it means looking back
+/// // before the start of your search.
+/// let hay = "xxfoo xx";
+/// let input = Input::new(hay).range(2..).anchored(Anchored::Yes);
+/// assert_eq!(None, re.find(input));
+/// // Indeed, you cannot achieve the above by simply slicing the
+/// // haystack itself, since the regex engine can't see the
+/// // surrounding context. This is why 'Input' permits setting
+/// // the bounds of a search!
+/// let input = Input::new(&hay[2..]).anchored(Anchored::Yes);
+/// // WRONG!
+/// assert_eq!(Some(Match::must(0, 0..3)), re.find(input));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Example: earliest search
+///
+/// This example shows how to run a search that might stop before finding the
+/// typical leftmost match.
+///
+/// ```
+/// use regex_automata::{meta::Regex, Anchored, Input, Match};
+///
+/// let re = Regex::new(r"[a-z]{3}|b")?;
+/// let input = Input::new("abc").earliest(true);
+/// assert_eq!(Some(Match::must(0, 1..2)), re.find(input));
+///
+/// // Note that "earliest" isn't really a match semantic unto itself.
+/// // Instead, it is merely an instruction to whatever regex engine
+/// // gets used internally to quit as soon as it can. For example,
+/// // this regex uses a different search technique, and winds up
+/// // producing a different (but valid) match!
+/// let re = Regex::new(r"abc|b")?;
+/// let input = Input::new("abc").earliest(true);
+/// assert_eq!(Some(Match::must(0, 0..3)), re.find(input));
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// # Example: change the line terminator
+///
+/// This example shows how to enable multi-line mode by default and change
+/// the line terminator to the NUL byte:
+///
+/// ```
+/// use regex_automata::{meta::Regex, util::syntax, Match};
+///
+/// let re = Regex::builder()
+///     .syntax(syntax::Config::new().multi_line(true))
+///     .configure(Regex::config().line_terminator(b'\x00'))
+///     .build(r"^foo$")?;
+/// let hay = "\x00foo\x00";
+/// assert_eq!(Some(Match::must(0, 1..4)), re.find(hay));
 ///
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -111,45 +256,1077 @@ struct RegexI {
     info: RegexInfo,
 }
 
+/// Convenience constructors for a `Regex` using the default configuration.
 impl Regex {
+    /// Builds a `Regex` from a single pattern string using the default
+    /// configuration.
+    ///
+    /// If there was a problem parsing the pattern or a problem turning it into
+    /// a regex matcher, then an error is returned.
+    ///
+    /// If you want to change the configuration of a `Regex`, use a [`Builder`]
+    /// with a [`Config`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::new(r"(?Rm)^foo$")?;
+    /// let hay = "\r\nfoo\r\n";
+    /// assert_eq!(Some(Match::must(0, 2..5)), re.find(hay));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(pattern: &str) -> Result<Regex, BuildError> {
         Regex::builder().build(pattern)
     }
 
+    /// Builds a `Regex` from many pattern strings using the default
+    /// configuration.
+    ///
+    /// If there was a problem parsing any of the patterns or a problem turning
+    /// them into a regex matcher, then an error is returned.
+    ///
+    /// If you want to change the configuration of a `Regex`, use a [`Builder`]
+    /// with a [`Config`].
+    ///
+    /// # Example: simple lexer
+    ///
+    /// This simplistic example leverages the multi-pattern support to build a
+    /// simple little lexer. The pattern ID in the match tells you which regex
+    /// matched, which in turn might be used to map back to the "type" of the
+    /// token returned by the lexer.
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::new_many(&[
+    ///     r"[[:space:]]",
+    ///     r"[A-Za-z0-9][A-Za-z0-9_]+",
+    ///     r"->",
+    ///     r".",
+    /// ])?;
+    /// let haystack = "fn is_boss(bruce: i32, springsteen: String) -> bool;";
+    /// let matches: Vec<Match> = re.find_iter(haystack).collect();
+    /// assert_eq!(matches, vec![
+    ///     Match::must(1, 0..2),   // 'fn'
+    ///     Match::must(0, 2..3),   // ' '
+    ///     Match::must(1, 3..10),  // 'is_boss'
+    ///     Match::must(3, 10..11), // '('
+    ///     Match::must(1, 11..16), // 'bruce'
+    ///     Match::must(3, 16..17), // ':'
+    ///     Match::must(0, 17..18), // ' '
+    ///     Match::must(1, 18..21), // 'i32'
+    ///     Match::must(3, 21..22), // ','
+    ///     Match::must(0, 22..23), // ' '
+    ///     Match::must(1, 23..34), // 'springsteen'
+    ///     Match::must(3, 34..35), // ':'
+    ///     Match::must(0, 35..36), // ' '
+    ///     Match::must(1, 36..42), // 'String'
+    ///     Match::must(3, 42..43), // ')'
+    ///     Match::must(0, 43..44), // ' '
+    ///     Match::must(2, 44..46), // '->'
+    ///     Match::must(0, 46..47), // ' '
+    ///     Match::must(1, 47..51), // 'bool'
+    ///     Match::must(3, 51..52), // ';'
+    /// ]);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: finding the pattern that caused an error
+    ///
+    /// When a syntax error occurs, it is possible to ask which pattern
+    /// caused the syntax error.
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, PatternID};
+    ///
+    /// let err = Regex::new_many(&["a", "b", r"\p{Foo}", "c"]).unwrap_err();
+    /// assert_eq!(Some(PatternID::must(2)), err.pattern());
+    /// ```
+    ///
+    /// # Example: zero patterns is valid
+    ///
+    /// Building a regex with zero patterns results in a regex that never
+    /// matches anything. Because this routine is generic, passing an empty
+    /// slice usually requires a turbo-fish (or something else to help type
+    /// inference).
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, util::syntax, Match};
+    ///
+    /// let re = Regex::new_many::<&str>(&[])?;
+    /// assert_eq!(None, re.find(""));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new_many<P: AsRef<str>>(
         patterns: &[P],
     ) -> Result<Regex, BuildError> {
         Regex::builder().build_many(patterns)
     }
 
-    pub fn always_match() -> Result<Regex, BuildError> {
-        Regex::new("")
-    }
-
-    pub fn never_match() -> Result<Regex, BuildError> {
-        Regex::new(r"[a&&b]")
-    }
-
+    /// Return a default configuration for a `Regex`.
+    ///
+    /// This is a convenience routine to avoid needing to import the [`Config`]
+    /// type when customizing the construction of a `Regex`.
+    ///
+    /// # Example: lower the NFA size limit
+    ///
+    /// In some cases, the default size limit might be too big. The size limit
+    /// can be lowered, which will prevent large regex patterns from compiling.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let result = Regex::builder()
+    ///     .configure(Regex::config().nfa_size_limit(Some(20 * (1<<10))))
+    ///     // Not even 20KB is enough to build a single large Unicode class!
+    ///     .build(r"\pL");
+    /// assert!(result.is_err());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn config() -> Config {
         Config::new()
     }
 
+    /// Return a builder for configuring the construction of a `Regex`.
+    ///
+    /// This is a convenience routine to avoid needing to import the
+    /// [`Builder`] type in common cases.
+    ///
+    /// # Example: change the line terminator
+    ///
+    /// This example shows how to enable multi-line mode by default and change
+    /// the line terminator to the NUL byte:
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, util::syntax, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .syntax(syntax::Config::new().multi_line(true))
+    ///     .configure(Regex::config().line_terminator(b'\x00'))
+    ///     .build(r"^foo$")?;
+    /// let hay = "\x00foo\x00";
+    /// assert_eq!(Some(Match::must(0, 1..4)), re.find(hay));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn builder() -> Builder {
         Builder::new()
     }
+}
 
+/// High level convenience routines for using a regex to search a haystack.
+impl Regex {
+    /// Returns true if and only if this regex matches the given haystack.
+    ///
+    /// This routine may short circuit if it knows that scanning future input
+    /// will never lead to a different result. (Consider how this might make
+    /// a difference given the regex `a+` on the haystack `aaaaaaaaaaaaaaa`.
+    /// This routine _may_ stop after it sees the first `a`, but routines like
+    /// `find` need to continue searching because `+` is greedy by default.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new("foo[0-9]+bar")?;
+    ///
+    /// assert!(re.is_match("foo12345bar"));
+    /// assert!(!re.is_match("foobar"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: consistency with search APIs
+    ///
+    /// `is_match` is guaranteed to return `true` whenever `find` returns a
+    /// match. This includes searches that are executed entirely within a
+    /// codepoint:
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input};
+    ///
+    /// let re = Regex::new("a*")?;
+    ///
+    /// // This doesn't match because the default configuration bans empty
+    /// // matches from splitting a codepoint.
+    /// assert!(!re.is_match(Input::new("☃").span(1..2)));
+    /// assert_eq!(None, re.find(Input::new("☃").span(1..2)));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// Notice that when UTF-8 mode is disabled, then the above reports a
+    /// match because the restriction against zero-width matches that split a
+    /// codepoint has been lifted:
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input, Match};
+    ///
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().utf8_empty(false))
+    ///     .build("a*")?;
+    ///
+    /// assert!(re.is_match(Input::new("☃").span(1..2)));
+    /// assert_eq!(
+    ///     Some(Match::must(0, 1..1)),
+    ///     re.find(Input::new("☃").span(1..2)),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn is_match<'h, I: Into<Input<'h>>>(&self, input: I) -> bool {
+        let input = input.into().earliest(true);
+        self.search_half(&input).is_some()
+    }
+
+    /// Executes a leftmost search and returns the first match that is found,
+    /// if one exists.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::new("foo[0-9]+")?;
+    /// assert_eq!(Some(Match::must(0, 0..8)), re.find("foo12345"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn find<'h, I: Into<Input<'h>>>(&self, input: I) -> Option<Match> {
+        self.search(&input.into())
+    }
+
+    /// Executes a leftmost forward search and writes the spans of capturing
+    /// groups that participated in a match into the provided [`Captures`]
+    /// value. If no match was found, then [`Captures::is_match`] is guaranteed
+    /// to return `false`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Span};
+    ///
+    /// let re = Regex::new(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})$")?;
+    /// let mut caps = re.create_captures();
+    ///
+    /// re.captures("2010-03-14", &mut caps);
+    /// assert!(caps.is_match());
+    /// assert_eq!(Some(Span::from(0..4)), caps.get_group(1));
+    /// assert_eq!(Some(Span::from(5..7)), caps.get_group(2));
+    /// assert_eq!(Some(Span::from(8..10)), caps.get_group(3));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn captures<'h, I: Into<Input<'h>>>(
+        &self,
+        input: I,
+        caps: &mut Captures,
+    ) {
+        self.search_captures(&input.into(), caps)
+    }
+
+    /// Returns an iterator over all non-overlapping leftmost matches in
+    /// the given haystack. If no match exists, then the iterator yields no
+    /// elements.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Match};
+    ///
+    /// let re = Regex::new("foo[0-9]+")?;
+    /// let haystack = "foo1 foo12 foo123";
+    /// let matches: Vec<Match> = re.find_iter(haystack).collect();
+    /// assert_eq!(matches, vec![
+    ///     Match::must(0, 0..4),
+    ///     Match::must(0, 5..10),
+    ///     Match::must(0, 11..17),
+    /// ]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn find_iter<'r, 'h, I: Into<Input<'h>>>(
+        &'r self,
+        input: I,
+    ) -> FindMatches<'r, 'h> {
+        let cache = self.pool.get();
+        let it = iter::Searcher::new(input.into());
+        FindMatches { re: self, cache, it }
+    }
+
+    /// Returns an iterator over all non-overlapping `Captures` values. If no
+    /// match exists, then the iterator yields no elements.
+    ///
+    /// This yields the same matches as [`Regex::find_iter`], but it includes
+    /// the spans of all capturing groups that participate in each match.
+    ///
+    /// **Tip:** See [`util::iter::Searcher`](crate::util::iter::Searcher) for
+    /// how to correctly iterate over all matches in a haystack while avoiding
+    /// the creation of a new `Captures` value for every match. (Which you are
+    /// forced to do with an `Iterator`.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Span};
+    ///
+    /// let re = Regex::new("foo(?P<numbers>[0-9]+)")?;
+    ///
+    /// let haystack = "foo1 foo12 foo123";
+    /// let matches: Vec<Span> = re
+    ///     .captures_iter(haystack)
+    ///     // The unwrap is OK since 'numbers' matches if the pattern matches.
+    ///     .map(|caps| caps.get_group_by_name("numbers").unwrap())
+    ///     .collect();
+    /// assert_eq!(matches, vec![
+    ///     Span::from(3..4),
+    ///     Span::from(8..10),
+    ///     Span::from(14..17),
+    /// ]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn captures_iter<'r, 'h, I: Into<Input<'h>>>(
+        &'r self,
+        input: I,
+    ) -> CapturesMatches<'r, 'h> {
+        let cache = self.pool.get();
+        let caps = self.create_captures();
+        let it = iter::Searcher::new(input.into());
+        CapturesMatches { re: self, cache, caps, it }
+    }
+}
+
+/// Lower level search routines that give more control.
+impl Regex {
+    /// Returns the start and end offset of the leftmost match. If no match
+    /// exists, then `None` is returned.
+    ///
+    /// This is like [`Regex::find`] but, but it accepts a concrete `&Input`
+    /// instead of an `Into<Input>`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input, Match};
+    ///
+    /// let re = Regex::new(r"Samwise|Sam")?;
+    /// let input = Input::new(
+    ///     "one of the chief characters, Samwise the Brave",
+    /// );
+    /// assert_eq!(Some(Match::must(0, 29..36)), re.search(&input));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search(&self, input: &Input<'_>) -> Option<Match> {
+        if self.imp.info.is_impossible(input) {
+            return None;
+        }
+        let mut guard = self.pool.get();
+        let result = self.imp.strat.search(&mut guard, input);
+        // We do this dance with the guard and explicitly put it back in the
+        // pool because it seems to result in better codegen. If we let the
+        // guard's Drop impl put it back in the pool, then functions like
+        // ptr::drop_in_place get called and they *don't* get inlined. This
+        // isn't usually a big deal, but in latency sensitive benchmarks the
+        // extra function call can matter.
+        //
+        // I used `rebar measure -f '^grep/every-line$' -e meta` to measure
+        // the effects here.
+        //
+        // Note that this doesn't eliminate the latency effects of using the
+        // pool. There is still some (minor) cost for the "thread owner" of the
+        // pool. (i.e., The thread that first calls a regex search routine.)
+        // However, for other threads using the regex, the pool access can be
+        // quite expensive as it goes through a mutex. Callers can avoid this
+        // by either cloning the Regex (which creates a distinct copy of the
+        // pool), or callers can use the lower level APIs that accept a 'Cache'
+        // directly and do their own handling.
+        PoolGuard::put(guard);
+        result
+    }
+
+    /// Returns the end offset of the leftmost match. If no match exists, then
+    /// `None` is returned.
+    ///
+    /// This is distinct from [`Regex::search`] in that it only returns the end
+    /// of a match and not the start of the match. Depending on a variety of
+    /// implementation details, this _may_ permit the regex engine to do less
+    /// overall work. For example, if a DFA is being used to execute a search,
+    /// then the start of a match usually requires running a separate DFA in
+    /// reverse to the find the start of a match. If one only needs the end of
+    /// a match, then the separate reverse scan to find the start of a match
+    /// can be skipped. (Note that the reverse scan is avoided even when using
+    /// `Regex::search` when possible, for example, in the case of an anchored
+    /// search.)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input, HalfMatch};
+    ///
+    /// let re = Regex::new(r"Samwise|Sam")?;
+    /// let input = Input::new(
+    ///     "one of the chief characters, Samwise the Brave",
+    /// );
+    /// assert_eq!(Some(HalfMatch::must(0, 36)), re.search_half(&input));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_half(&self, input: &Input<'_>) -> Option<HalfMatch> {
+        if self.imp.info.is_impossible(input) {
+            return None;
+        }
+        let mut guard = self.pool.get();
+        let result = self.imp.strat.search_half(&mut guard, input);
+        // See 'Regex::search' for why we put the guard back explicitly.
+        PoolGuard::put(guard);
+        result
+    }
+
+    /// Executes a leftmost forward search and writes the spans of capturing
+    /// groups that participated in a match into the provided [`Captures`]
+    /// value. If no match was found, then [`Captures::is_match`] is guaranteed
+    /// to return `false`.
+    ///
+    /// This is like [`Regex::captures`], but it accepts a concrete `&Input`
+    /// instead of an `Into<Input>`.
+    ///
+    /// # Example: specific pattern search
+    ///
+    /// This example shows how to build a multi-pattern `Regex` that permits
+    /// searching for specific patterns.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     meta::Regex,
+    ///     Anchored, Match, PatternID, Input,
+    /// };
+    ///
+    /// let re = Regex::new_many(&["[a-z0-9]{6}", "[a-z][a-z0-9]{5}"])?;
+    /// let mut caps = re.create_captures();
+    /// let haystack = "foo123";
+    ///
+    /// // Since we are using the default leftmost-first match and both
+    /// // patterns match at the same starting position, only the first pattern
+    /// // will be returned in this case when doing a search for any of the
+    /// // patterns.
+    /// let expected = Some(Match::must(0, 0..6));
+    /// re.search_captures(&Input::new(haystack), &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// // But if we want to check whether some other pattern matches, then we
+    /// // can provide its pattern ID.
+    /// let expected = Some(Match::must(1, 0..6));
+    /// let input = Input::new(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
+    /// re.search_captures(&input, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: specifying the bounds of a search
+    ///
+    /// This example shows how providing the bounds of a search can produce
+    /// different results than simply sub-slicing the haystack.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{meta::Regex, Match, Input};
+    ///
+    /// let re = Regex::new(r"\b[0-9]{3}\b")?;
+    /// let mut caps = re.create_captures();
+    /// let haystack = "foo123bar";
+    ///
+    /// // Since we sub-slice the haystack, the search doesn't know about
+    /// // the larger context and assumes that `123` is surrounded by word
+    /// // boundaries. And of course, the match position is reported relative
+    /// // to the sub-slice as well, which means we get `0..3` instead of
+    /// // `3..6`.
+    /// let expected = Some(Match::must(0, 0..3));
+    /// let input = Input::new(&haystack[3..6]);
+    /// re.search_captures(&input, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// // But if we provide the bounds of the search within the context of the
+    /// // entire haystack, then the search can take the surrounding context
+    /// // into account. (And if we did find a match, it would be reported
+    /// // as a valid offset into `haystack` instead of its sub-slice.)
+    /// let expected = None;
+    /// let input = Input::new(haystack).range(3..6);
+    /// re.search_captures(&input, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_captures(&self, input: &Input<'_>, caps: &mut Captures) {
+        caps.set_pattern(None);
+        let pid = self.search_slots(input, caps.slots_mut());
+        caps.set_pattern(pid);
+    }
+
+    /// Executes a leftmost forward search and writes the spans of capturing
+    /// groups that participated in a match into the provided `slots`, and
+    /// returns the matching pattern ID. The contents of the slots for patterns
+    /// other than the matching pattern are unspecified. If no match was found,
+    /// then `None` is returned and the contents of `slots` is unspecified.
+    ///
+    /// This is like [`Regex::search`], but it accepts a raw slots slice
+    /// instead of a `Captures` value. This is useful in contexts where you
+    /// don't want or need to allocate a `Captures`.
+    ///
+    /// It is legal to pass _any_ number of slots to this routine. If the regex
+    /// engine would otherwise write a slot offset that doesn't fit in the
+    /// provided slice, then it is simply skipped. In general though, there are
+    /// usually three slice lengths you might want to use:
+    ///
+    /// * An empty slice, if you only care about which pattern matched.
+    /// * A slice with [`pattern_len() * 2`](Regex::pattern_len) slots, if you
+    /// only care about the overall match spans for each matching pattern.
+    /// * A slice with
+    /// [`slot_len()`](crate::util::captures::GroupInfo::slot_len) slots, which
+    /// permits recording match offsets for every capturing group in every
+    /// pattern.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find the overall match offsets in a
+    /// multi-pattern search without allocating a `Captures` value. Indeed, we
+    /// can put our slots right on the stack.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{meta::Regex, PatternID, Input};
+    ///
+    /// let re = Regex::new_many(&[
+    ///     r"\pL+",
+    ///     r"\d+",
+    /// ])?;
+    /// let input = Input::new("!@#123");
+    ///
+    /// // We only care about the overall match offsets here, so we just
+    /// // allocate two slots for each pattern. Each slot records the start
+    /// // and end of the match.
+    /// let mut slots = [None; 4];
+    /// let pid = re.search_slots(&input, &mut slots);
+    /// assert_eq!(Some(PatternID::must(1)), pid);
+    ///
+    /// // The overall match offsets are always at 'pid * 2' and 'pid * 2 + 1'.
+    /// // See 'GroupInfo' for more details on the mapping between groups and
+    /// // slot indices.
+    /// let slot_start = pid.unwrap().as_usize() * 2;
+    /// let slot_end = slot_start + 1;
+    /// assert_eq!(Some(3), slots[slot_start].map(|s| s.get()));
+    /// assert_eq!(Some(6), slots[slot_end].map(|s| s.get()));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_slots(
+        &self,
+        input: &Input<'_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        if self.imp.info.is_impossible(input) {
+            return None;
+        }
+        let mut guard = self.pool.get();
+        let result = self.imp.strat.search_slots(&mut guard, input, slots);
+        // See 'Regex::search' for why we put the guard back explicitly.
+        PoolGuard::put(guard);
+        result
+    }
+
+    /// Writes the set of patterns that match anywhere in the given search
+    /// configuration to `patset`. If multiple patterns match at the same
+    /// position and this `Regex` was configured with [`MatchKind::All`]
+    /// semantics, then all matching patterns are written to the given set.
+    ///
+    /// Unless all of the patterns in this `Regex` are anchored, then generally
+    /// speaking, this will scan the entire haystack.
+    ///
+    /// This search routine *does not* clear the pattern set. This gives some
+    /// flexibility to the caller (e.g., running multiple searches with the
+    /// same pattern set), but does make the API bug-prone if you're reusing
+    /// the same pattern set for multiple searches but intended them to be
+    /// independent.
+    ///
+    /// If a pattern ID matched but the given `PatternSet` does not have
+    /// sufficient capacity to store it, then it is not inserted and silently
+    /// dropped.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find all matching patterns in a haystack,
+    /// even when some patterns match at the same position as other patterns.
+    /// It is important that we configure the `Regex` with [`MatchKind::All`]
+    /// semantics here, or else overlapping matches will not be reported.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{meta::Regex, Input, MatchKind, PatternSet};
+    ///
+    /// let patterns = &[
+    ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
+    /// ];
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().match_kind(MatchKind::All))
+    ///     .build_many(patterns)?;
+    ///
+    /// let input = Input::new("foobar");
+    /// let mut patset = PatternSet::new(re.pattern_len());
+    /// re.which_overlapping_matches(&input, &mut patset);
+    /// let expected = vec![0, 2, 3, 4, 6];
+    /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn which_overlapping_matches(
+        &self,
+        input: &Input<'_>,
+        patset: &mut PatternSet,
+    ) {
+        if self.imp.info.is_impossible(input) {
+            return;
+        }
+        let mut guard = self.pool.get();
+        let result = self
+            .imp
+            .strat
+            .which_overlapping_matches(&mut guard, input, patset);
+        // See 'Regex::search' for why we put the guard back explicitly.
+        PoolGuard::put(guard);
+        result
+    }
+}
+
+/// Lower level search routines that give more control, and require the caller
+/// to provide an explicit [`Cache`] parameter.
+impl Regex {
+    /// This is like [`Regex::search`], but requires the caller to
+    /// explicitly pass a [`Cache`].
+    ///
+    /// # Why pass a `Cache` explicitly?
+    ///
+    /// Passing a `Cache` explicitly will bypass the use of an internal memory
+    /// pool used by `Regex` to get a `Cache` for a search. The use of this
+    /// pool can be slower in some cases when a `Regex` is used from multiple
+    /// threads simultaneously. Typically, performance only becomes an issue
+    /// when there is heavy contention, which in turn usually only occurs
+    /// when each thread's primary unit of work is a regex search on a small
+    /// haystack.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input, Match};
+    ///
+    /// let re = Regex::new(r"Samwise|Sam")?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new(
+    ///     "one of the chief characters, Samwise the Brave",
+    /// );
+    /// assert_eq!(
+    ///     Some(Match::must(0, 29..36)),
+    ///     re.search_with(&mut cache, &input),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_with(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Option<Match> {
+        if self.imp.info.is_impossible(input) {
+            return None;
+        }
+        self.imp.strat.search(cache, input)
+    }
+
+    /// This is like [`Regex::search_half`], but requires the caller to
+    /// explicitly pass a [`Cache`].
+    ///
+    /// # Why pass a `Cache` explicitly?
+    ///
+    /// Passing a `Cache` explicitly will bypass the use of an internal memory
+    /// pool used by `Regex` to get a `Cache` for a search. The use of this
+    /// pool can be slower in some cases when a `Regex` is used from multiple
+    /// threads simultaneously. Typically, performance only becomes an issue
+    /// when there is heavy contention, which in turn usually only occurs
+    /// when each thread's primary unit of work is a regex search on a small
+    /// haystack.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input, HalfMatch};
+    ///
+    /// let re = Regex::new(r"Samwise|Sam")?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new(
+    ///     "one of the chief characters, Samwise the Brave",
+    /// );
+    /// assert_eq!(
+    ///     Some(HalfMatch::must(0, 36)),
+    ///     re.search_half_with(&mut cache, &input),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_half_with(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+    ) -> Option<HalfMatch> {
+        if self.imp.info.is_impossible(input) {
+            return None;
+        }
+        self.imp.strat.search_half(cache, input)
+    }
+
+    /// This is like [`Regex::search_captures`], but requires the caller to
+    /// explicitly pass a [`Cache`].
+    ///
+    /// # Why pass a `Cache` explicitly?
+    ///
+    /// Passing a `Cache` explicitly will bypass the use of an internal memory
+    /// pool used by `Regex` to get a `Cache` for a search. The use of this
+    /// pool can be slower in some cases when a `Regex` is used from multiple
+    /// threads simultaneously. Typically, performance only becomes an issue
+    /// when there is heavy contention, which in turn usually only occurs
+    /// when each thread's primary unit of work is a regex search on a small
+    /// haystack.
+    ///
+    /// # Example: specific pattern search
+    ///
+    /// This example shows how to build a multi-pattern `Regex` that permits
+    /// searching for specific patterns.
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     meta::Regex,
+    ///     Anchored, Match, PatternID, Input,
+    /// };
+    ///
+    /// let re = Regex::new_many(&["[a-z0-9]{6}", "[a-z][a-z0-9]{5}"])?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let haystack = "foo123";
+    ///
+    /// // Since we are using the default leftmost-first match and both
+    /// // patterns match at the same starting position, only the first pattern
+    /// // will be returned in this case when doing a search for any of the
+    /// // patterns.
+    /// let expected = Some(Match::must(0, 0..6));
+    /// re.search_captures_with(&mut cache, &Input::new(haystack), &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// // But if we want to check whether some other pattern matches, then we
+    /// // can provide its pattern ID.
+    /// let expected = Some(Match::must(1, 0..6));
+    /// let input = Input::new(haystack)
+    ///     .anchored(Anchored::Pattern(PatternID::must(1)));
+    /// re.search_captures_with(&mut cache, &input, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Example: specifying the bounds of a search
+    ///
+    /// This example shows how providing the bounds of a search can produce
+    /// different results than simply sub-slicing the haystack.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{meta::Regex, Match, Input};
+    ///
+    /// let re = Regex::new(r"\b[0-9]{3}\b")?;
+    /// let (mut cache, mut caps) = (re.create_cache(), re.create_captures());
+    /// let haystack = "foo123bar";
+    ///
+    /// // Since we sub-slice the haystack, the search doesn't know about
+    /// // the larger context and assumes that `123` is surrounded by word
+    /// // boundaries. And of course, the match position is reported relative
+    /// // to the sub-slice as well, which means we get `0..3` instead of
+    /// // `3..6`.
+    /// let expected = Some(Match::must(0, 0..3));
+    /// let input = Input::new(&haystack[3..6]);
+    /// re.search_captures_with(&mut cache, &input, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// // But if we provide the bounds of the search within the context of the
+    /// // entire haystack, then the search can take the surrounding context
+    /// // into account. (And if we did find a match, it would be reported
+    /// // as a valid offset into `haystack` instead of its sub-slice.)
+    /// let expected = None;
+    /// let input = Input::new(haystack).range(3..6);
+    /// re.search_captures_with(&mut cache, &input, &mut caps);
+    /// assert_eq!(expected, caps.get_match());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_captures_with(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        caps: &mut Captures,
+    ) {
+        caps.set_pattern(None);
+        let pid = self.search_slots_with(cache, input, caps.slots_mut());
+        caps.set_pattern(pid);
+    }
+
+    /// This is like [`Regex::search_slots`], but requires the caller to
+    /// explicitly pass a [`Cache`].
+    ///
+    /// # Why pass a `Cache` explicitly?
+    ///
+    /// Passing a `Cache` explicitly will bypass the use of an internal memory
+    /// pool used by `Regex` to get a `Cache` for a search. The use of this
+    /// pool can be slower in some cases when a `Regex` is used from multiple
+    /// threads simultaneously. Typically, performance only becomes an issue
+    /// when there is heavy contention, which in turn usually only occurs
+    /// when each thread's primary unit of work is a regex search on a small
+    /// haystack.
+    ///
+    /// # Example
+    ///
+    /// This example shows how to find the overall match offsets in a
+    /// multi-pattern search without allocating a `Captures` value. Indeed, we
+    /// can put our slots right on the stack.
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{meta::Regex, PatternID, Input};
+    ///
+    /// let re = Regex::new_many(&[
+    ///     r"\pL+",
+    ///     r"\d+",
+    /// ])?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("!@#123");
+    ///
+    /// // We only care about the overall match offsets here, so we just
+    /// // allocate two slots for each pattern. Each slot records the start
+    /// // and end of the match.
+    /// let mut slots = [None; 4];
+    /// let pid = re.search_slots_with(&mut cache, &input, &mut slots);
+    /// assert_eq!(Some(PatternID::must(1)), pid);
+    ///
+    /// // The overall match offsets are always at 'pid * 2' and 'pid * 2 + 1'.
+    /// // See 'GroupInfo' for more details on the mapping between groups and
+    /// // slot indices.
+    /// let slot_start = pid.unwrap().as_usize() * 2;
+    /// let slot_end = slot_start + 1;
+    /// assert_eq!(Some(3), slots[slot_start].map(|s| s.get()));
+    /// assert_eq!(Some(6), slots[slot_end].map(|s| s.get()));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn search_slots_with(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        slots: &mut [Option<NonMaxUsize>],
+    ) -> Option<PatternID> {
+        if self.imp.info.is_impossible(input) {
+            return None;
+        }
+        self.imp.strat.search_slots(cache, input, slots)
+    }
+
+    /// This is like [`Regex::which_overlapping_matches`], but requires the
+    /// caller to explicitly pass a [`Cache`].
+    ///
+    /// Passing a `Cache` explicitly will bypass the use of an internal memory
+    /// pool used by `Regex` to get a `Cache` for a search. The use of this
+    /// pool can be slower in some cases when a `Regex` is used from multiple
+    /// threads simultaneously. Typically, performance only becomes an issue
+    /// when there is heavy contention, which in turn usually only occurs
+    /// when each thread's primary unit of work is a regex search on a small
+    /// haystack.
+    ///
+    /// # Why pass a `Cache` explicitly?
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # if cfg!(miri) { return Ok(()); } // miri takes too long
+    /// use regex_automata::{meta::Regex, Input, MatchKind, PatternSet};
+    ///
+    /// let patterns = &[
+    ///     r"\w+", r"\d+", r"\pL+", r"foo", r"bar", r"barfoo", r"foobar",
+    /// ];
+    /// let re = Regex::builder()
+    ///     .configure(Regex::config().match_kind(MatchKind::All))
+    ///     .build_many(patterns)?;
+    /// let mut cache = re.create_cache();
+    ///
+    /// let input = Input::new("foobar");
+    /// let mut patset = PatternSet::new(re.pattern_len());
+    /// re.which_overlapping_matches_with(&mut cache, &input, &mut patset);
+    /// let expected = vec![0, 2, 3, 4, 6];
+    /// let got: Vec<usize> = patset.iter().map(|p| p.as_usize()).collect();
+    /// assert_eq!(expected, got);
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[inline]
+    pub fn which_overlapping_matches_with(
+        &self,
+        cache: &mut Cache,
+        input: &Input<'_>,
+        patset: &mut PatternSet,
+    ) {
+        if self.imp.info.is_impossible(input) {
+            return;
+        }
+        self.imp.strat.which_overlapping_matches(cache, input, patset)
+    }
+}
+
+/// Various non-search routines for querying properties of a `Regex` and
+/// convenience routines for creating [`Captures`] and [`Cache`] values.
+impl Regex {
+    /// Creates a new object for recording capture group offsets. This is used
+    /// in search APIs like [`Regex::captures`] and [`Regex::search_captures`].
+    ///
+    /// This is a convenience routine for
+    /// `Captures::all(re.group_info().clone())`. Callers may build other types
+    /// of `Captures` values that record less information (and thus require
+    /// less work from the regex engine) using [`Captures::matches`] and
+    /// [`Captures::empty`].
+    ///
+    /// # Example
+    ///
+    /// This shows some alternatives to [`Regex::create_captures`]:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     meta::Regex,
+    ///     util::captures::Captures,
+    ///     Match, PatternID, Span,
+    /// };
+    ///
+    /// let re = Regex::new(r"(?<first>[A-Z][a-z]+) (?<last>[A-Z][a-z]+)")?;
+    ///
+    /// // This is equivalent to Regex::create_captures. It stores matching
+    /// // offsets for all groups in the regex.
+    /// let mut all = Captures::all(re.group_info().clone());
+    /// re.captures("Bruce Springsteen", &mut all);
+    /// assert_eq!(Some(Match::must(0, 0..17)), all.get_match());
+    /// assert_eq!(Some(Span::from(0..5)), all.get_group_by_name("first"));
+    /// assert_eq!(Some(Span::from(6..17)), all.get_group_by_name("last"));
+    ///
+    /// // In this version, we only care about the implicit groups, which
+    /// // means offsets for the explicit groups will be unavailable. It can
+    /// // sometimes be faster to ask for fewer groups, since the underlying
+    /// // regex engine needs to do less work to keep track of them.
+    /// let mut matches = Captures::matches(re.group_info().clone());
+    /// re.captures("Bruce Springsteen", &mut matches);
+    /// // We still get the overall match info.
+    /// assert_eq!(Some(Match::must(0, 0..17)), matches.get_match());
+    /// // But now the explicit groups are unavailable.
+    /// assert_eq!(None, matches.get_group_by_name("first"));
+    /// assert_eq!(None, matches.get_group_by_name("last"));
+    ///
+    /// // Finally, in this version, we don't ask to keep track of offsets for
+    /// // *any* groups. All we get back is whether a match occurred, and if
+    /// // so, the ID of the pattern that matched.
+    /// let mut empty = Captures::empty(re.group_info().clone());
+    /// re.captures("Bruce Springsteen", &mut empty);
+    /// // it's a match!
+    /// assert!(empty.is_match());
+    /// // for pattern ID 0
+    /// assert_eq!(Some(PatternID::ZERO), empty.pattern());
+    /// // Match offsets are unavailable.
+    /// assert_eq!(None, empty.get_match());
+    /// // And of course, explicit groups are unavailable too.
+    /// assert_eq!(None, empty.get_group_by_name("first"));
+    /// assert_eq!(None, empty.get_group_by_name("last"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn create_captures(&self) -> Captures {
         Captures::all(self.group_info().clone())
     }
 
+    /// Creates a new cache for use with lower level search APIs like
+    /// [`Regex::search_with`].
+    ///
+    /// The cache returned should only be used for searches for this `Regex`.
+    /// If you want to reuse the cache for another `Regex`, then you must call
+    /// [`Cache::reset`] with that `Regex`.
+    ///
+    /// This is a convenience routine for [`Cache::new`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::{meta::Regex, Input, Match};
+    ///
+    /// let re = Regex::new(r"(?-u)m\w+\s+m\w+")?;
+    /// let mut cache = re.create_cache();
+    /// let input = Input::new("crazy janey and her mission man");
+    /// assert_eq!(
+    ///     Some(Match::must(0, 20..31)),
+    ///     re.search_with(&mut cache, &input),
+    /// );
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn create_cache(&self) -> Cache {
         self.imp.strat.create_cache()
     }
 
-    pub fn reset_cache(&self, cache: &mut Cache) {
-        self.imp.strat.reset_cache(cache)
-    }
-
+    /// Returns the total number of patterns in this regex.
+    ///
+    /// The standard [`Regex::new`] constructor always results in a `Regex`
+    /// with a single pattern, but [`Regex::new_many`] permits building a
+    /// multi-pattern regex.
+    ///
+    /// A `Regex` guarantees that the maximum possible `PatternID` returned in
+    /// any match is `Regex::pattern_len() - 1`. In the case where the number
+    /// of patterns is `0`, a match is impossible.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use regex_automata::meta::Regex;
+    ///
+    /// let re = Regex::new(r"(?m)^[a-z]$")?;
+    /// assert_eq!(1, re.pattern_len());
+    ///
+    /// let re = Regex::new_many::<&str>(&[])?;
+    /// assert_eq!(0, re.pattern_len());
+    ///
+    /// let re = Regex::new_many(&["a", "b", "c"])?;
+    /// assert_eq!(3, re.pattern_len());
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn pattern_len(&self) -> usize {
         self.imp.info.pattern_len()
     }
@@ -282,209 +1459,103 @@ impl Regex {
             .map(|len| len.saturating_add(1))
     }
 
+    /// Return information about the capture groups in this `Regex`.
+    ///
+    /// A `GroupInfo` is an immutable object that can be cheaply cloned. It
+    /// is responsible for maintaining a mapping between the capture groups
+    /// in the concrete syntax of zero or more regex patterns and their
+    /// internal representation used by some of the regex matchers. It is also
+    /// responsible for maintaining a mapping between the name of each group
+    /// (if one exists) and its corresponding group index.
+    ///
+    /// A `GroupInfo` is ultimately what is used to build a [`Captures`] value,
+    /// which is some mutable space where group offsets are stored as a result
+    /// of a search.
+    ///
+    /// # Example
+    ///
+    /// This shows some alternatives to [`Regex::create_captures`]:
+    ///
+    /// ```
+    /// use regex_automata::{
+    ///     meta::Regex,
+    ///     util::captures::Captures,
+    ///     Match, PatternID, Span,
+    /// };
+    ///
+    /// let re = Regex::new(r"(?<first>[A-Z][a-z]+) (?<last>[A-Z][a-z]+)")?;
+    ///
+    /// // This is equivalent to Regex::create_captures. It stores matching
+    /// // offsets for all groups in the regex.
+    /// let mut all = Captures::all(re.group_info().clone());
+    /// re.captures("Bruce Springsteen", &mut all);
+    /// assert_eq!(Some(Match::must(0, 0..17)), all.get_match());
+    /// assert_eq!(Some(Span::from(0..5)), all.get_group_by_name("first"));
+    /// assert_eq!(Some(Span::from(6..17)), all.get_group_by_name("last"));
+    ///
+    /// // In this version, we only care about the implicit groups, which
+    /// // means offsets for the explicit groups will be unavailable. It can
+    /// // sometimes be faster to ask for fewer groups, since the underlying
+    /// // regex engine needs to do less work to keep track of them.
+    /// let mut matches = Captures::matches(re.group_info().clone());
+    /// re.captures("Bruce Springsteen", &mut matches);
+    /// // We still get the overall match info.
+    /// assert_eq!(Some(Match::must(0, 0..17)), matches.get_match());
+    /// // But now the explicit groups are unavailable.
+    /// assert_eq!(None, matches.get_group_by_name("first"));
+    /// assert_eq!(None, matches.get_group_by_name("last"));
+    ///
+    /// // Finally, in this version, we don't ask to keep track of offsets for
+    /// // *any* groups. All we get back is whether a match occurred, and if
+    /// // so, the ID of the pattern that matched.
+    /// let mut empty = Captures::empty(re.group_info().clone());
+    /// re.captures("Bruce Springsteen", &mut empty);
+    /// // it's a match!
+    /// assert!(empty.is_match());
+    /// // for pattern ID 0
+    /// assert_eq!(Some(PatternID::ZERO), empty.pattern());
+    /// // Match offsets are unavailable.
+    /// assert_eq!(None, empty.get_match());
+    /// // And of course, explicit groups are unavailable too.
+    /// assert_eq!(None, empty.get_group_by_name("first"));
+    /// assert_eq!(None, empty.get_group_by_name("last"));
+    ///
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[inline]
     pub fn group_info(&self) -> &GroupInfo {
         self.imp.strat.group_info()
     }
 
+    /// Returns the configuration object used to build this `Regex`.
+    ///
+    /// If no configuration object was explicitly passed, then the
+    /// configuration returned represents the default.
+    #[inline]
     pub fn get_config(&self) -> &Config {
         self.imp.info.config()
     }
 
+    /// Return the total approximate heap memory, in bytes, used by this `Regex`.
+    ///
+    /// Note that currently, there is no high level configuration for setting
+    /// a limit on the specific value returned by this routine. Instead, the
+    /// following routines can be used to control heap memory at a bit of a
+    /// lower level:
+    ///
+    /// * [`Config::nfa_size_limit`] controls how big _any_ of the NFAs are
+    /// allowed to be.
+    /// * [`Config::onepass_size_limit`] controls how big the one-pass DFA is
+    /// allowed to be.
+    /// * [`Config::hybrid_cache_capacity`] controls how much memory the lazy
+    /// DFA is permitted to allocate to store its transition table.
+    /// * [`Config::dfa_size_limit`] controls how big a fully compiled DFA is
+    /// allowed to be.
+    /// * [`Config::dfa_state_limit`] controls the conditions under which the
+    /// meta regex engine will even attempt to build a fully compiled DFA.
+    #[inline]
     pub fn memory_usage(&self) -> usize {
-        0
-    }
-}
-
-impl Regex {
-    #[inline]
-    pub fn is_match<'h, I: Into<Input<'h>>>(&self, input: I) -> bool {
-        let input = input.into().earliest(true);
-        self.search_half(&input).is_some()
-    }
-
-    #[inline]
-    pub fn find<'h, I: Into<Input<'h>>>(&self, input: I) -> Option<Match> {
-        self.search(&input.into())
-    }
-
-    #[inline]
-    pub fn captures<'h, I: Into<Input<'h>>>(
-        &self,
-        input: I,
-        caps: &mut Captures,
-    ) {
-        self.search_captures(&input.into(), caps)
-    }
-
-    #[inline]
-    pub fn find_iter<'r, 'h, I: Into<Input<'h>>>(
-        &'r self,
-        input: I,
-    ) -> FindMatches<'r, 'h> {
-        let cache = self.pool.get();
-        let it = iter::Searcher::new(input.into());
-        FindMatches { re: self, cache, it }
-    }
-
-    #[inline]
-    pub fn captures_iter<'r, 'h, I: Into<Input<'h>>>(
-        &'r self,
-        input: I,
-    ) -> CapturesMatches<'r, 'h> {
-        let cache = self.pool.get();
-        let caps = self.create_captures();
-        let it = iter::Searcher::new(input.into());
-        CapturesMatches { re: self, cache, caps, it }
-    }
-}
-
-impl Regex {
-    #[inline]
-    pub fn search(&self, input: &Input<'_>) -> Option<Match> {
-        if self.imp.info.is_impossible(input) {
-            return None;
-        }
-        let mut guard = self.pool.get();
-        let result = self.imp.strat.search(&mut guard, input);
-        // We do this dance with the guard and explicitly put it back in the
-        // pool because it seems to result in better codegen. If we let the
-        // guard's Drop impl put it back in the pool, then functions like
-        // ptr::drop_in_place get called and they *don't* get inlined. This
-        // isn't usually a big deal, but in latency sensitive benchmarks the
-        // extra function call can matter.
-        //
-        // I used `rebar measure -f '^grep/every-line$' -e meta` to measure
-        // the effects here.
-        //
-        // Note that this doesn't eliminate the latency effects of using the
-        // pool. There is still some (minor) cost for the "thread owner" of the
-        // pool. (i.e., The thread that first calls a regex search routine.)
-        // However, for other threads using the regex, the pool access can be
-        // quite expensive as it goes through a mutex. Callers can avoid this
-        // by either cloning the Regex (which creates a distinct copy of the
-        // pool), or callers can use the lower level APIs that accept a 'Cache'
-        // directly and do their own handling.
-        PoolGuard::put(guard);
-        result
-    }
-
-    #[inline]
-    pub fn search_half(&self, input: &Input<'_>) -> Option<HalfMatch> {
-        if self.imp.info.is_impossible(input) {
-            return None;
-        }
-        let mut guard = self.pool.get();
-        let result = self.imp.strat.search_half(&mut guard, input);
-        // See 'Regex::search' for why we put the guard back explicitly.
-        PoolGuard::put(guard);
-        result
-    }
-
-    #[inline]
-    pub fn search_captures(&self, input: &Input<'_>, caps: &mut Captures) {
-        caps.set_pattern(None);
-        let pid = self.search_slots(input, caps.slots_mut());
-        caps.set_pattern(pid);
-    }
-
-    #[inline]
-    pub fn search_slots(
-        &self,
-        input: &Input<'_>,
-        slots: &mut [Option<NonMaxUsize>],
-    ) -> Option<PatternID> {
-        if self.imp.info.is_impossible(input) {
-            return None;
-        }
-        let mut guard = self.pool.get();
-        let result = self.imp.strat.search_slots(&mut guard, input, slots);
-        // See 'Regex::search' for why we put the guard back explicitly.
-        PoolGuard::put(guard);
-        result
-    }
-
-    #[inline]
-    pub fn which_overlapping_matches(
-        &self,
-        input: &Input<'_>,
-        patset: &mut PatternSet,
-    ) {
-        if self.imp.info.is_impossible(input) {
-            return;
-        }
-        let mut guard = self.pool.get();
-        let result = self
-            .imp
-            .strat
-            .which_overlapping_matches(&mut guard, input, patset);
-        // See 'Regex::search' for why we put the guard back explicitly.
-        PoolGuard::put(guard);
-        result
-    }
-}
-
-impl Regex {
-    #[inline]
-    pub fn search_with(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Option<Match> {
-        if self.imp.info.is_impossible(input) {
-            return None;
-        }
-        self.imp.strat.search(cache, input)
-    }
-
-    #[inline]
-    pub fn search_half_with(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-    ) -> Option<HalfMatch> {
-        if self.imp.info.is_impossible(input) {
-            return None;
-        }
-        self.imp.strat.search_half(cache, input)
-    }
-
-    #[inline]
-    pub fn search_captures_with(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-        caps: &mut Captures,
-    ) {
-        caps.set_pattern(None);
-        let pid = self.search_slots_with(cache, input, caps.slots_mut());
-        caps.set_pattern(pid);
-    }
-
-    #[inline]
-    pub fn search_slots_with(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-        slots: &mut [Option<NonMaxUsize>],
-    ) -> Option<PatternID> {
-        if self.imp.info.is_impossible(input) {
-            return None;
-        }
-        self.imp.strat.search_slots(cache, input, slots)
-    }
-
-    #[inline]
-    pub fn which_overlapping_matches_with(
-        &self,
-        cache: &mut Cache,
-        input: &Input<'_>,
-        patset: &mut PatternSet,
-    ) {
-        if self.imp.info.is_impossible(input) {
-            return;
-        }
-        self.imp.strat.which_overlapping_matches(cache, input, patset)
+        self.imp.strat.memory_usage()
     }
 }
 
@@ -540,6 +1611,11 @@ impl RegexInfo {
         self.props().len()
     }
 
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.props().iter().map(|p| p.memory_usage()).sum::<usize>()
+            + self.props_union().memory_usage()
+    }
+
     /// Returns true when the search is guaranteed to be anchored. That is,
     /// when a match is reported, its offset is guaranteed to correspond to
     /// the start of the search.
@@ -572,12 +1648,16 @@ impl RegexInfo {
     /// Returns true if and only if it is known that a match is impossible
     /// for the given input. This is useful for short-circuiting and avoiding
     /// running the regex engine if it's known no match can be reported.
+    ///
+    /// Note that this doesn't necessarily detect every possible case. For
+    /// example, when `pattern_len() == 0`, a match is impossible, but that
+    /// case is so rare that it's fine to be handled by the regex engine
+    /// itself. That is, it's not worth the cost of adding it here in order to
+    /// make it a little faster. The reason is that this is called for every
+    /// search. so there is some cost to adding checks here. Arguably, some of
+    /// the checks that are here already probably shouldn't be here...
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn is_impossible(&self, input: &Input<'_>) -> bool {
-        // Input has been exhausted, nothing left to do.
-        if input.is_done() {
-            return true;
-        }
         // The underlying regex is anchored, so if we don't start the search
         // at position 0, a match is impossible, because the anchor can only
         // match at position 0.
@@ -816,7 +1896,7 @@ impl Cache {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn reset(&mut self, re: &Regex) {
-        re.reset_cache(self)
+        re.imp.strat.reset_cache(self)
     }
 
     /// Returns the heap memory usage, in bytes, of this cache.
@@ -1707,7 +2787,7 @@ impl Builder {
         self.build_many(&[pattern])
     }
 
-    /// Builds a `Regex` from a many pattern strings.
+    /// Builds a `Regex` from many pattern strings.
     ///
     /// If there was a problem parsing any of the patterns or a problem turning
     /// them into a regex matcher, then an error is returned.
@@ -1726,11 +2806,11 @@ impl Builder {
     /// assert_eq!(Some(PatternID::must(2)), err.pattern());
     /// ```
     ///
-    /// # Example: zero patterns is a valid number
+    /// # Example: zero patterns is valid
     ///
     /// Building a regex with zero patterns results in a regex that never
-    /// matches anything. Because of the generics, passing an empty slice
-    /// usually requires a turbo-fish (or something else to help type
+    /// matches anything. Because this routine is generic, passing an empty
+    /// slice usually requires a turbo-fish (or something else to help type
     /// inference).
     ///
     /// ```

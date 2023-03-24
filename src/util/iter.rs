@@ -104,6 +104,45 @@ use crate::util::search::{HalfMatch, Input, Match, MatchError};
 /// iterators from a closure. The former are useful for _implementing_
 /// iterators or when you need more flexibility, while the latter are useful
 /// for conveniently writing custom iterators on-the-fly.
+///
+/// # Example: iterating with captures
+///
+/// Several regex engines in this crate over convenient iterator APIs over
+/// [`Captures`] values. To do so, this requires allocating a new `Captures`
+/// value for each iteration step. This can perhaps be more costly than you
+/// might want. Instead of implementing your own iterator to avoid that
+/// cost (which can be a little subtle if you want to handle empty matches
+/// correctly), you can use this `Searcher` to do it for you:
+///
+/// ```
+/// use regex_automata::{
+///     nfa::thompson::pikevm::PikeVM,
+///     util::iter::Searcher,
+///     Input, Span,
+/// };
+///
+/// let re = PikeVM::new("foo(?P<numbers>[0-9]+)")?;
+/// let haystack = "foo1 foo12 foo123";
+///
+/// let mut caps = re.create_captures();
+/// let mut cache = re.create_cache();
+/// let mut matches = vec![];
+/// let mut searcher = Searcher::new(Input::new(haystack));
+/// while let Some(_) = searcher.advance(|input| {
+///     re.search(&mut cache, input, &mut caps);
+///     Ok(caps.get_match())
+/// }) {
+///     // The unwrap is OK since 'numbers' matches if the pattern matches.
+///     matches.push(caps.get_group_by_name("numbers").unwrap());
+/// }
+/// assert_eq!(matches, vec![
+///     Span::from(3..4),
+///     Span::from(8..10),
+///     Span::from(14..17),
+/// ]);
+///
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug)]
 pub struct Searcher<'h> {
     /// The input parameters to give to each regex engine call.
