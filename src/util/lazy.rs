@@ -27,6 +27,15 @@ use core::fmt;
 /// guarantees or a more flexible API, then it is recommended to use either
 /// `lazy_static` or `once_cell`.
 ///
+/// # Warning: may use a spin lock
+///
+/// When this crate is compiled _without_ the `alloc` feature, then this type
+/// may used a spin lock internally. This can have subtle effects that may be
+/// desirable. See [Spinlocks Considered Harmful][spinharm] for a more thorough
+/// treatment of this topic.
+///
+/// [spinharm]: https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
+///
 /// # Example
 ///
 /// This type is useful for creating regexes once, and then using them from
@@ -89,6 +98,7 @@ impl<T: fmt::Debug, F: Fn() -> T> fmt::Debug for Lazy<T, F> {
 mod lazy {
     use core::{
         fmt,
+        marker::PhantomData,
         sync::atomic::{AtomicPtr, Ordering},
     };
 
@@ -110,14 +120,39 @@ mod lazy {
     pub(super) struct Lazy<T, F> {
         data: AtomicPtr<T>,
         create: F,
+        // This indicates to the compiler that this type can drop T. It's not
+        // totally clear how the absence of this marker could lead to trouble,
+        // but putting here doesn't have any downsides so we hedge until somone
+        // can from the Unsafe Working Group can tell us definitively that we
+        // don't need it.
+        //
+        // See: https://github.com/BurntSushi/regex-automata/issues/30
+        owned: PhantomData<Box<T>>,
     }
+
+    // SAFETY: So long as T and &T (and F and &F) can themselves be safely
+    // shared among threads, so to can a Lazy<T, _>. Namely, the Lazy API only
+    // permits accessing a &T and initialization is free of data races. So if T
+    // is thread safe, then so to is Lazy<T, _>.
+    //
+    // We specifically require that T: Send in order for Lazy<T> to be Sync.
+    // Without that requirement, it's possible to send a T from one thread to
+    // another via Lazy's destructor.
+    //
+    // It's not clear whether we need F: Send+Sync for Lazy to be Sync. But
+    // we're conservative for now and keep both.
+    unsafe impl<T: Send + Sync, F: Send + Sync> Sync for Lazy<T, F> {}
 
     impl<T, F> Lazy<T, F> {
         /// Create a new alloc but non-std lazy value that is racily
         /// initialized. That is, the 'create' function may be called more than
         /// once.
         pub(super) const fn new(create: F) -> Lazy<T, F> {
-            Lazy { data: AtomicPtr::new(core::ptr::null_mut()), create }
+            Lazy {
+                data: AtomicPtr::new(core::ptr::null_mut()),
+                create,
+                owned: PhantomData,
+            }
         }
     }
 
@@ -395,5 +430,31 @@ mod tests {
         assert_sync::<Lazy<u64>>();
         assert_unwind::<Lazy<u64>>();
         assert_refunwind::<Lazy<u64>>();
+    }
+
+    // This is a regression test because we used to rely on the inferred Sync
+    // impl for the Lazy type defined above (for 'alloc' mode). In the
+    // inferred impl, it only requires that T: Sync for Lazy<T>: Sync. But
+    // if we have that, we can actually make use of the fact that Lazy<T> drops
+    // T to create a value on one thread and drop it on another. This *should*
+    // require T: Send, but our missing bounds before let it sneak by.
+    //
+    // See: https://github.com/BurntSushi/regex-automata/issues/30
+    #[test]
+    fn sync_not_send() {
+        #[allow(dead_code)]
+        fn inner<T: Sync + Default>() {
+            let lazy = Lazy::new(move || T::default());
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    Lazy::get(&lazy); // We create T in this thread
+                });
+            });
+            // And drop in this thread.
+            drop(lazy);
+            // So we have send a !Send type over threads. (with some more
+            // legwork, its possible to even sneak the value out of drop
+            // through thread local)
+        }
     }
 }

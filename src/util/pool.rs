@@ -120,6 +120,15 @@ being quite expensive.
 /// this `Pool` or thread through a cache explicitly in your code is a matter
 /// of taste and depends on your code architecture.
 ///
+/// # Warning: may use a spin lock
+///
+/// When this crate is compiled _without_ the `std` feature, then this type
+/// may used a spin lock internally. This can have subtle effects that may be
+/// desirable. See [Spinlocks Considered Harmful][spinharm] for a more thorough
+/// treatment of this topic.
+///
+/// [spinharm]: https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
+///
 /// # Example
 ///
 /// This example shows how to share a single hybrid regex among multiple
