@@ -439,7 +439,11 @@ mod tests {
     // T to create a value on one thread and drop it on another. This *should*
     // require T: Send, but our missing bounds before let it sneak by.
     //
+    // Basically, this test should not compile, so we... comment it out. We
+    // don't have a great way of testing compile-fail tests right now.
+    //
     // See: https://github.com/BurntSushi/regex-automata/issues/30
+    /*
     #[test]
     fn sync_not_send() {
         #[allow(dead_code)]
@@ -457,4 +461,5 @@ mod tests {
             // through thread local)
         }
     }
+    */
 }
