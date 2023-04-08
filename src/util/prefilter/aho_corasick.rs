@@ -39,7 +39,7 @@ impl AhoCorasick {
                 aho_corasick::AhoCorasickKind::ContiguousNFA
             };
             let result = aho_corasick::AhoCorasick::builder()
-                .kind(ac_kind)
+                .kind(Some(ac_kind))
                 .match_kind(ac_match_kind)
                 .start_kind(aho_corasick::StartKind::Both)
                 // We try to handle all of the prefilter cases in the super

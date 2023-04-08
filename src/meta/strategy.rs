@@ -19,9 +19,7 @@ use crate::{
         look::LookMatcher,
         prefilter::{self, Prefilter, PrefilterI},
         primitives::{NonMaxUsize, PatternID},
-        search::{
-            Anchored, HalfMatch, Input, Match, MatchKind, PatternSet, Span,
-        },
+        search::{Anchored, HalfMatch, Input, Match, MatchKind, PatternSet},
     },
 };
 
@@ -1057,7 +1055,7 @@ impl ReverseSuffix {
         &self,
         cache: &mut Cache,
         input: &Input<'_>,
-    ) -> Result<Option<(HalfMatch, Span)>, RetryError> {
+    ) -> Result<Option<HalfMatch>, RetryError> {
         let mut span = input.get_span();
         let mut min_start = 0;
         loop {
@@ -1079,7 +1077,7 @@ impl ReverseSuffix {
                     }
                     span.start = litmatch.start.checked_add(1).unwrap();
                 }
-                Some(hm) => return Ok(Some((hm, litmatch))),
+                Some(hm) => return Ok(Some(hm)),
             }
             min_start = litmatch.end;
         }
@@ -1170,7 +1168,7 @@ impl Strategy for ReverseSuffix {
                 self.core.search_nofail(cache, input)
             }
             Ok(None) => None,
-            Ok(Some((hm_start, _))) => {
+            Ok(Some(hm_start)) => {
                 let fwdinput = input
                     .clone()
                     .anchored(Anchored::Pattern(hm_start.pattern()))
@@ -1217,8 +1215,36 @@ impl Strategy for ReverseSuffix {
                 self.core.search_half_nofail(cache, input)
             }
             Ok(None) => None,
-            Ok(Some((hm_start, pre_span))) => {
-                Some(HalfMatch::new(hm_start.pattern(), pre_span.end))
+            Ok(Some(hm_start)) => {
+                // This is a bit subtle. It is tempting to just stop searching
+                // at this point and return a half-match with an offset
+                // corresponding to where the suffix was found. But the suffix
+                // match does not necessarily correspond to the end of the
+                // proper leftmost-first match. Consider /[a-z]+ing/ against
+                // 'tingling'. The first suffix match is the first 'ing', and
+                // the /[a-z]+/ matches the 't'. So if we stopped here, then
+                // we'd report 'ting' as the match. But 'tingling' is the
+                // correct match because of greediness.
+                let fwdinput = input
+                    .clone()
+                    .anchored(Anchored::Pattern(hm_start.pattern()))
+                    .span(hm_start.offset()..input.end());
+                match self.try_search_half_fwd(cache, &fwdinput) {
+                    Err(_err) => {
+                        trace!(
+                            "reverse suffix forward fast search failed: {}",
+                            _err
+                        );
+                        self.core.search_half_nofail(cache, input)
+                    }
+                    Ok(None) => {
+                        unreachable!(
+                            "suffix match plus reverse match implies \
+						     there must be a match",
+                        )
+                    }
+                    Ok(Some(hm_end)) => Some(hm_end),
+                }
             }
         }
     }
@@ -1252,7 +1278,7 @@ impl Strategy for ReverseSuffix {
                 return self.core.search_slots_nofail(cache, input, slots);
             }
             Ok(None) => return None,
-            Ok(Some((hm_start, _))) => hm_start,
+            Ok(Some(hm_start)) => hm_start,
         };
         trace!(
             "match found at {}..{} in capture search, \

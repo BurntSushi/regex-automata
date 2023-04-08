@@ -3418,3 +3418,18 @@ impl Builder {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // I found this in the course of building out the benchmark suite for
+    // rebar.
+    #[test]
+    fn regression() {
+        env_logger::init();
+
+        let re = Regex::new(r"[a-zA-Z]+ing").unwrap();
+        assert_eq!(1, re.find_iter("tingling").count());
+    }
+}

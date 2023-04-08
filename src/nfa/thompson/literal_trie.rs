@@ -494,6 +494,7 @@ mod tests {
         trie.add(b"zap").unwrap();
 
         let got = trie.compile_to_hir();
+        std::dbg!(std::string::ToString::to_string(&got));
         let expected = Hir::concat(vec![
             Hir::literal(B("z")),
             Hir::alternation(vec![
@@ -513,6 +514,7 @@ mod tests {
         trie.add(b"maker").unwrap();
 
         let got = trie.compile_to_hir();
+        std::dbg!(std::string::ToString::to_string(&got));
         let expected = Hir::concat(vec![
             Hir::literal(B("ma")),
             Hir::alternation(vec![

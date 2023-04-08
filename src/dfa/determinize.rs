@@ -252,7 +252,7 @@ impl<'a> Runner<'a> {
         }
         debug!(
             "determinization complete, memory usage: {}, \
-             dense DFA size: {},
+             dense DFA size: {}, \
              is reverse? {}",
             self.memory_usage(),
             self.dfa.memory_usage(),

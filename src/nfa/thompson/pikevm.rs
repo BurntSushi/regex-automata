@@ -2120,7 +2120,12 @@ impl SlotTable {
         // This happens about as often as a regex is compiled, so it probably
         // should be at debug level, but I found it quite distracting and not
         // particularly useful.
-        trace!("resizing PikeVM active states table to {} entries", len);
+        trace!(
+            "resizing PikeVM active states table to {} entries \
+             (slots_per_state={})",
+            len,
+            self.slots_per_state,
+        );
         self.table.resize(len, None);
     }
 
