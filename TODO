@@ -15,9 +15,11 @@ constant overhead associated with them.
 
 * Scrutinize whether the SparseTransitions and Transition types should have
 their representations expose. The State enum is already totally exposed...
+  * Yup, expose them.
 
 * Provide a more elementary API for 'start_state_forward'.
 See: https://github.com/rust-lang/regex/issues/852
+  * Calling this fixed via 'universal_start_state'.
 
 * There is an issue where the minimum cache capacity required by the lazy DFA
 is likely too big. This in turn could result in NOT using the lazy DFA even
@@ -42,6 +44,7 @@ Specifically, the Sparse state. Maybe PCMPESTI can finally be useful?
 it does include a pattern ID). DONE.
 
 * Prefilters. See top of src/util/prefilter.rs for more in depth thoughts.
+  * DONE
 
 * On the topic of prefilters, we should beef up the memchr crate with a few
 other things:
@@ -73,6 +76,9 @@ long. And, sadly, none of the TOML test suite tests can run yet. Namely, even
 deserializing a single TOML file into memory appears to be incredibly slow.
 Ideally, we figure out how to increase Miri test coverage without complicating
 things too much.
+  * DONE, but not elegantly. Basically just selectively disabled things until
+    'cargo miri test' completed in reasonable time.
 
 * Decide and update docs with respect to what happens when you give a search an
 invalid range.
+  * DONE
