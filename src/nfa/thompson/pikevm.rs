@@ -5,7 +5,7 @@ This module provides a [`PikeVM`] that works by simulating an NFA and
 resolving all spans of capturing groups that participate in a match.
 */
 
-#[cfg(feature = "instrument-pikevm")]
+#[cfg(feature = "internal-instrument-pikevm")]
 use core::cell::RefCell;
 
 use alloc::{vec, vec::Vec};
@@ -24,8 +24,8 @@ use crate::{
 
 /// A simple macro for conditionally executing instrumentation logic when
 /// the 'trace' log level is enabled. This is a compile-time no-op when the
-/// 'instrument-pikevm' feature isn't enabled. The intent here is that this
-/// makes it easier to avoid doing extra work when instrumentation isn't
+/// 'internal-instrument-pikevm' feature isn't enabled. The intent here is that
+/// this makes it easier to avoid doing extra work when instrumentation isn't
 /// enabled.
 ///
 /// This macro accepts a closure of type `|&mut Counters|`. The closure can
@@ -33,7 +33,7 @@ use crate::{
 /// to track.
 macro_rules! instrument {
     ($fun:expr) => {
-        #[cfg(feature = "instrument-pikevm")]
+        #[cfg(feature = "internal-instrument-pikevm")]
         {
             let fun: &mut dyn FnMut(&mut Counters) = &mut $fun;
             COUNTERS.with(|c: &RefCell<Counters>| fun(&mut *c.borrow_mut()));
@@ -41,7 +41,7 @@ macro_rules! instrument {
     };
 }
 
-#[cfg(feature = "instrument-pikevm")]
+#[cfg(feature = "internal-instrument-pikevm")]
 std::thread_local! {
     /// Effectively global state used to keep track of instrumentation
     /// counters. The "proper" way to do this is to thread it through the
@@ -2214,14 +2214,14 @@ enum FollowEpsilon {
 }
 
 /// A set of counters that "instruments" a PikeVM search. To enable this, you
-/// must enable the 'instrument-pikevm' feature. Then run your Rust program
-/// with RUST_LOG=regex_automata::nfa::thompson::pikevm=trace set in the
-/// environment. The metrics collected will be dumped automatically for every
-/// search executed by the PikeVM.
+/// must enable the 'internal-instrument-pikevm' feature. Then run your Rust
+/// program with RUST_LOG=regex_automata::nfa::thompson::pikevm=trace set in
+/// the environment. The metrics collected will be dumped automatically for
+/// every search executed by the PikeVM.
 ///
-/// NOTE: When 'instrument-pikevm' is enabled, it will likely cause an absolute
-/// decrease in wall-clock performance, even if the 'trace' log level isn't
-/// enabled. (Although, we do try to avoid extra costs when 'trace' isn't
+/// NOTE: When 'internal-instrument-pikevm' is enabled, it will likely cause an
+/// absolute decrease in wall-clock performance, even if the 'trace' log level
+/// isn't enabled. (Although, we do try to avoid extra costs when 'trace' isn't
 /// enabled.) The main point of instrumentation is to get counts of various
 /// events that occur during the PikeVM's execution.
 ///
@@ -2247,7 +2247,7 @@ enum FollowEpsilon {
 /// Tip: When debugging performance problems with the PikeVM, it's best to try
 /// to work with an NFA that is as small as possible. Otherwise the state graph
 /// is likely to be too big to digest.
-#[cfg(feature = "instrument-pikevm")]
+#[cfg(feature = "internal-instrument-pikevm")]
 #[derive(Clone, Debug)]
 struct Counters {
     /// The number of times the NFA is in a particular permutation of states.
@@ -2265,7 +2265,7 @@ struct Counters {
     set_inserts: Vec<u64>,
 }
 
-#[cfg(feature = "instrument-pikevm")]
+#[cfg(feature = "internal-instrument-pikevm")]
 impl Counters {
     fn empty() -> Counters {
         Counters {

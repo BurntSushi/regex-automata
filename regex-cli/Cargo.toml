@@ -21,7 +21,7 @@ path = "main.rs"
 
 [features]
 default = []
-instrument = ["regex-automata/instrument"]
+instrument = ["regex-automata/internal-instrument"]
 
 [dependencies]
 anyhow = "1.0.28"

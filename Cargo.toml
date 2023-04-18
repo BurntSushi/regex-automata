@@ -86,8 +86,10 @@ unicode-segment = ["regex-syntax?/unicode-segment"]
 # inside regex-automata will be included.
 unicode-word-boundary = []
 
-instrument = ["instrument-pikevm"]
-instrument-pikevm = ["logging", "std"]
+# These are strictly internal features that may be removed or changed in
+# non-compatible ways.
+internal-instrument = ["internal-instrument-pikevm"]
+internal-instrument-pikevm = ["logging", "std"]
 
 [dependencies]
 aho-corasick = { version = "1.0.0", optional = true, default-features = false }
