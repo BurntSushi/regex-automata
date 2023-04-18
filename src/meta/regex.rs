@@ -131,6 +131,21 @@ type CachePoolFn =
 /// Overall, this is an issue that happens rarely in practice, but it can
 /// happen.
 ///
+/// # Warning: spin-locks may be used in alloc-only mode
+///
+/// When this crate is built without the `std` feature and the high level APIs
+/// on a `Regex` are used, then a spin-lock will be used to synchronize access
+/// to an internal pool of `Cache` values. This may be undesirable because
+/// a spin-lock is [effectively impossible to implement correctly in user
+/// space][spinlocks-are-bad]. That is, more concretely, the spin-lock could
+/// result in a deadlock.
+///
+/// [spinlocks-are-bad]: https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
+///
+/// If one wants to avoid the use of spin-locks when the `std` feature is
+/// disabled, then you must use APIs that accept a `Cache` value explicitly.
+/// For example, [`Regex::search_with`].
+///
 /// # Example
 ///
 /// ```

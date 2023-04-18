@@ -1021,15 +1021,15 @@ impl<'a> DFA<&'a [u8]> {
     ///
     /// # Safety
     ///
-    /// This routine is unsafe because it permits callers to provide
+    /// This routine is not safe because it permits callers to provide
     /// arbitrary transitions with possibly incorrect state identifiers. While
     /// the various serialization routines will never return an incorrect
-    /// DFA, there is no guarantee that the bytes provided here
-    /// are correct. While `from_bytes_unchecked` will still do several forms
-    /// of basic validation, this routine does not check that the transitions
-    /// themselves are correct. Given an incorrect transition table, it is
-    /// possible for the search routines to access out-of-bounds memory because
-    /// of explicit bounds check elision.
+    /// DFA, there is no guarantee that the bytes provided here are correct.
+    /// While `from_bytes_unchecked` will still do several forms of basic
+    /// validation, this routine does not check that the transitions themselves
+    /// are correct. Given an incorrect transition table, it is possible for
+    /// the search routines to access out-of-bounds memory because of explicit
+    /// bounds check elision.
     ///
     /// # Example
     ///
@@ -1114,6 +1114,7 @@ impl<T: AsRef<[u8]>> fmt::Debug for DFA<T> {
     }
 }
 
+// SAFETY: We assert that our implementation of each method is correct.
 unsafe impl<T: AsRef<[u8]>> Automaton for DFA<T> {
     #[inline]
     fn is_special_state(&self, id: StateID) -> bool {

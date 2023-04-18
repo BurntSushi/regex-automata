@@ -2334,9 +2334,9 @@ impl<'a> DFA<&'a [u32]> {
     pub fn from_bytes(
         slice: &'a [u8],
     ) -> Result<(DFA<&'a [u32]>, usize), DeserializeError> {
-        // SAFETY: This is safe because we validate both the transition table,
-        // start state ID list and the match states below. If either validation
-        // fails, then we return an error.
+        // SAFETY: This is safe because we validate the transition table, start
+        // table, match states and accelerators below. If any validation fails,
+        // then we return an error.
         let (dfa, nread) = unsafe { DFA::from_bytes_unchecked(slice)? };
         dfa.tt.validate()?;
         dfa.st.validate(&dfa.tt)?;
@@ -3115,6 +3115,7 @@ impl<T: AsRef<[u32]>> fmt::Debug for DFA<T> {
     }
 }
 
+// SAFETY: We assert that our implementation of each method is correct.
 unsafe impl<T: AsRef<[u32]>> Automaton for DFA<T> {
     #[cfg_attr(feature = "perf-inline", inline(always))]
     fn is_special_state(&self, id: StateID) -> bool {
@@ -3688,15 +3689,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
 
     /// Returns the table as a slice of state IDs.
     fn table(&self) -> &[StateID] {
-        let integers = self.table.as_ref();
-        // SAFETY: This is safe because StateID is guaranteed to be
-        // representable as a u32.
-        unsafe {
-            core::slice::from_raw_parts(
-                integers.as_ptr().cast::<StateID>(),
-                integers.len(),
-            )
-        }
+        wire::u32s_to_state_ids(self.table.as_ref())
     }
 
     /// Returns the total number of states in this transition table.
@@ -3745,15 +3738,7 @@ impl<T: AsRef<[u32]>> TransitionTable<T> {
 impl<T: AsMut<[u32]>> TransitionTable<T> {
     /// Returns the table as a slice of state IDs.
     fn table_mut(&mut self) -> &mut [StateID] {
-        let integers = self.table.as_mut();
-        // SAFETY: This is safe because StateID is guaranteed to be
-        // representable as a u32.
-        unsafe {
-            core::slice::from_raw_parts_mut(
-                integers.as_mut_ptr().cast::<StateID>(),
-                integers.len(),
-            )
-        }
+        wire::u32s_to_state_ids_mut(self.table.as_mut())
     }
 }
 
@@ -4224,15 +4209,7 @@ impl<T: AsRef<[u32]>> StartTable<T> {
 
     /// Returns the table as a slice of state IDs.
     fn table(&self) -> &[StateID] {
-        let integers = self.table.as_ref();
-        // SAFETY: This is safe because StateID is guaranteed to be
-        // representable as a u32.
-        unsafe {
-            core::slice::from_raw_parts(
-                integers.as_ptr().cast::<StateID>(),
-                integers.len(),
-            )
-        }
+        wire::u32s_to_state_ids(self.table.as_ref())
     }
 
     /// Return the memory usage, in bytes, of this start list.
@@ -4273,15 +4250,7 @@ impl<T: AsMut<[u32]>> StartTable<T> {
 
     /// Returns the table as a mutable slice of state IDs.
     fn table_mut(&mut self) -> &mut [StateID] {
-        let integers = self.table.as_mut();
-        // SAFETY: This is safe because StateID is guaranteed to be
-        // representable as a u32.
-        unsafe {
-            core::slice::from_raw_parts_mut(
-                integers.as_mut_ptr().cast::<StateID>(),
-                integers.len(),
-            )
-        }
+        wire::u32s_to_state_ids_mut(self.table.as_mut())
     }
 }
 
@@ -4643,15 +4612,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
 
     /// Returns the pattern ID offset slice of u32 as a slice of PatternID.
     fn slices(&self) -> &[PatternID] {
-        let integers = self.slices.as_ref();
-        // SAFETY: This is safe because PatternID is guaranteed to be
-        // representable as a u32.
-        unsafe {
-            core::slice::from_raw_parts(
-                integers.as_ptr().cast::<PatternID>(),
-                integers.len(),
-            )
-        }
+        wire::u32s_to_pattern_ids(self.slices.as_ref())
     }
 
     /// Returns the total number of match states.
@@ -4662,15 +4623,7 @@ impl<T: AsRef<[u32]>> MatchStates<T> {
 
     /// Returns the pattern ID slice of u32 as a slice of PatternID.
     fn pattern_ids(&self) -> &[PatternID] {
-        let integers = self.pattern_ids.as_ref();
-        // SAFETY: This is safe because PatternID is guaranteed to be
-        // representable as a u32.
-        unsafe {
-            core::slice::from_raw_parts(
-                integers.as_ptr().cast::<PatternID>(),
-                integers.len(),
-            )
-        }
+        wire::u32s_to_pattern_ids(self.pattern_ids.as_ref())
     }
 
     /// Return the memory usage, in bytes, of these match pairs.

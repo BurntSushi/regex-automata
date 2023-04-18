@@ -269,6 +269,51 @@ impl core::fmt::Display for DeserializeError {
     }
 }
 
+/// Safely converts a `&[u32]` to `&[StateID]` with zero cost.
+pub(crate) fn u32s_to_state_ids(slice: &[u32]) -> &[StateID] {
+    // SAFETY: This is safe because StateID is defined to have the same memory
+    // representation as a u32 (it is repr(transparent)). While not every u32
+    // is a "valid" StateID, callers are not permitted to rely on the validity
+    // of StateIDs for memory safety. It can only lead to logical errors. (This
+    // is why StateID::new_unchecked is safe.)
+    unsafe {
+        core::slice::from_raw_parts(
+            slice.as_ptr().cast::<StateID>(),
+            slice.len(),
+        )
+    }
+}
+
+/// Safely converts a `&mut [u32]` to `&mut [StateID]` with zero cost.
+pub(crate) fn u32s_to_state_ids_mut(slice: &mut [u32]) -> &mut [StateID] {
+    // SAFETY: This is safe because StateID is defined to have the same memory
+    // representation as a u32 (it is repr(transparent)). While not every u32
+    // is a "valid" StateID, callers are not permitted to rely on the validity
+    // of StateIDs for memory safety. It can only lead to logical errors. (This
+    // is why StateID::new_unchecked is safe.)
+    unsafe {
+        core::slice::from_raw_parts_mut(
+            slice.as_mut_ptr().cast::<StateID>(),
+            slice.len(),
+        )
+    }
+}
+
+/// Safely converts a `&[u32]` to `&[PatternID]` with zero cost.
+pub(crate) fn u32s_to_pattern_ids(slice: &[u32]) -> &[PatternID] {
+    // SAFETY: This is safe because PatternID is defined to have the same
+    // memory representation as a u32 (it is repr(transparent)). While not
+    // every u32 is a "valid" PatternID, callers are not permitted to rely
+    // on the validity of PatternIDs for memory safety. It can only lead to
+    // logical errors. (This is why PatternID::new_unchecked is safe.)
+    unsafe {
+        core::slice::from_raw_parts(
+            slice.as_ptr().cast::<PatternID>(),
+            slice.len(),
+        )
+    }
+}
+
 /// Checks that the given slice has an alignment that matches `T`.
 ///
 /// This is useful for checking that a slice has an appropriate alignment
@@ -798,6 +843,13 @@ pub(crate) fn shl(
     }
 }
 
+/// Returns the number of additional bytes required to add to the given length
+/// in order to make the total length a multiple of 4. The return value is
+/// always less than 4.
+pub(crate) fn padding_len(non_padding_len: usize) -> usize {
+    (4 - (non_padding_len & 0b11)) & 0b11
+}
+
 /// A simple trait for writing code generic over endianness.
 ///
 /// This is similar to what byteorder provides, but we only need a very small
@@ -868,13 +920,6 @@ impl Endian for BE {
     fn write_u128(n: u128, dst: &mut [u8]) {
         dst[..16].copy_from_slice(&n.to_be_bytes());
     }
-}
-
-/// Returns the number of additional bytes required to add to the given length
-/// in order to make the total length a multiple of 4. The return value is
-/// always less than 4.
-pub(crate) fn padding_len(non_padding_len: usize) -> usize {
-    (4 - (non_padding_len & 0b11)) & 0b11
 }
 
 #[cfg(all(test, feature = "alloc"))]

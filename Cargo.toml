@@ -24,7 +24,6 @@ members = ["regex-cli", "regex-test"]
 bench = false
 
 [patch.crates-io]
-aho-corasick = { path = "/home/andrew/rust/aho-corasick" }
 regex = { path = "/home/andrew/rust/regex" }
 regex-syntax = { path = "/home/andrew/rust/regex/regex-syntax" }
 
@@ -91,7 +90,7 @@ instrument = ["instrument-pikevm"]
 instrument-pikevm = ["logging", "std"]
 
 [dependencies]
-aho-corasick = { version = "0.7.19", optional = true, default-features = false }
+aho-corasick = { version = "1.0.0", optional = true, default-features = false }
 log = { version = "0.4.14", optional = true }
 memchr = { version = "2.5.0", optional = true, default-features = false }
 regex-syntax = { version = "0.6.24", optional = true, default-features = false }

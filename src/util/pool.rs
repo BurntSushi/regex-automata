@@ -597,6 +597,25 @@ mod inner {
     }
 }
 
+// FUTURE: We should consider using Mara Bos's nearly-lock-free version of this
+// here: https://gist.github.com/m-ou-se/5fdcbdf7dcf4585199ce2de697f367a4.
+//
+// One reason why I did things with a "mutex" below is that it isolates the
+// safety concerns to just the Mutex, where as the safety of Mara's pool is a
+// bit more sprawling. I also expect this code to not be used that much, and
+// so is unlikely to get as much real world usage with which to test it. That
+// means the "obviously correct" lever is an important one.
+//
+// The specific reason to use Mara's pool is that it is likely faster and also
+// less likely to hit problems with spin-locks, although it is not completely
+// impervious to them.
+//
+// The best solution to this problem, probably, is a truly lock free pool. That
+// could be done with a lock free linked list. The issue is the ABA problem. It
+// is difficult to avoid, and doing so is complex. BUT, the upshot of that is
+// that if we had a truly lock free pool, then we could also use it above in
+// the 'std' pool instead of a Mutex because it should be completely free the
+// problems that come from spin-locks.
 #[cfg(not(feature = "std"))]
 mod inner {
     use core::{
