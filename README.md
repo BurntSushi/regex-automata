@@ -1,3 +1,13 @@
+**WARNING**: If you're coming here to learn more about the migration to
+`regex-automata` in the `regex` crate, then this README is **not** a good
+source of information. This README targets an older `0.1` version of
+`regex-automata`. It documents a number of limitations that would be completely
+inappropriate to foist upon the `regex` crate. That won't happen. The version
+of `regex-automata` that will be used in `regex` will still provide all of the
+same guarantees you get today, including time and space complexity bounds on
+regex compile and search time. Once the migration is complete, this repository
+will be archived.
+
 regex-automata
 ==============
 A low level regular expression library that uses deterministic finite automata.
