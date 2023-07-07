@@ -229,4 +229,4 @@ With some of the downsides out of the way, here are some positive differences:
   If we could know whether a regex will exhibit state explosion or not, then
   we could make an intelligent decision about whether to ahead-of-time compile
   a DFA.
-  See: https://www.researchgate.net/profile/Xu-Shutu/publication/229032602_Characterization_of_a_global_germplasm_collection_and_its_potential_utilization_for_analysis_of_complex_quantitative_traits_in_maize/links/02bfe50f914d04c837000000/Characterization-of-a-global-germplasm-collection-and-its-potential-utilization-for-analysis-of-complex-quantitative-traits-in-maize.pdf
+  See: https://dl.acm.org/doi/10.1109/PACT.2011.73
