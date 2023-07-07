@@ -1,5 +1,4 @@
-# **WARNING**: This repository is now archived. The `regex-automata` crate
-now resides at https://github.com/rust-lang/regex
+# **WARNING**: This repository is now archived. The `regex-automata` crate now resides at https://github.com/rust-lang/regex
 
 regex-automata
 ==============
